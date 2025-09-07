@@ -1,0 +1,145 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CLIENT
+  COACH
+  ADMIN
+}
+
+enum BookingStatus {
+  PENDING
+  SCHEDULED
+  COMPLETED
+  CANCELED
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      Role     @default(CLIENT)
+  timezone  String   @default("America/Toronto")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clientProfile   ClientProfile?
+  coachProfile    CoachProfile?
+  messages        Message[]
+
+  // Opposite sides for Booking relations
+  clientBookings  Booking[] @relation("ClientBookings")
+  coachBookings   Booking[] @relation("CoachBookings")
+
+  // Opposite sides for Review relations
+  clientReviews   Review[]  @relation("ClientReviews")
+  coachReviews    Review[]  @relation("CoachReviews")
+
+  // NEW: opposite side for Questionnaire relation
+  questionnaires  Questionnaire[]
+}
+
+model ClientProfile {
+  id         String  @id @default(cuid())
+  userId     String  @unique
+  user       User    @relation(fields: [userId], references: [id])
+  goals      String?
+  languages  String?   // CSV string
+  budgetMin  Int?
+  budgetMax  Int?
+}
+
+model CoachProfile {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id])
+  bio            String
+  specialties    String?   // CSV string
+  certifications String?   // CSV string
+  languages      String?   // CSV string
+  timezone       String
+  pricePerHour   Int
+  formats        String?   // CSV string
+  rating         Float     @default(0)
+  ratingCount    Int       @default(0)
+  availability   Availability[]
+}
+
+model Availability {
+  id        String        @id @default(cuid())
+  coachId   String
+  coach     CoachProfile  @relation(fields: [coachId], references: [id])
+  dayOfWeek Int
+  startMins Int
+  endMins   Int
+}
+
+model Questionnaire {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id]) // keeps referential integrity
+  answers   String   // JSON string
+  score     Int
+  createdAt DateTime @default(now())
+}
+
+model Match {
+  id        String   @id @default(cuid())
+  clientId  String
+  coachId   String
+  score     Int
+  createdAt DateTime @default(now())
+}
+
+model Booking {
+  id        String         @id @default(cuid())
+  clientId  String
+  coachId   String
+  start     DateTime
+  end       DateTime
+  status    BookingStatus  @default(PENDING)
+  location  String
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  client    User     @relation("ClientBookings", fields: [clientId], references: [id])
+  coach     User     @relation("CoachBookings", fields: [coachId], references: [id])
+}
+
+model Conversation {
+  id        String      @id @default(cuid())
+  clientId  String
+  coachId   String
+  createdAt DateTime    @default(now())
+  messages  Message[]
+}
+
+model Message {
+  id             String        @id @default(cuid())
+  conversationId String
+  senderId       String
+  content        String
+  createdAt      DateTime      @default(now())
+
+  sender       User         @relation(fields: [senderId], references: [id])
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  clientId  String
+  coachId   String
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+
+  client    User     @relation("ClientReviews", fields: [clientId], references: [id])
+  coach     User     @relation("CoachReviews", fields: [coachId], references: [id])
+}
