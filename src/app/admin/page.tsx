@@ -1,17 +1,7 @@
 import { prisma } from "@/src/lib/db";
 import { Card } from "@/src/lib/ui";
-import dynamic from "next/dynamic";
 import { BookingStatus } from "@prisma/client";
 
-// Import the client chart lazily with SSR disabled
-const RevenueChart = dynamic(
-  () => import("@/src/components/charts/RevenueChart"),
-  { ssr: false }
-);
-
-type RevenuePoint = { date: string; revenue: number; count: number };
-
-// Helper to format a Date -> YYYY-MM-DD (UTC)
 function ymd(d: Date) {
   const y = d.getUTCFullYear();
   const m = String(d.getUTCMonth() + 1).padStart(2, "0");
@@ -26,7 +16,7 @@ export default async function RevenuePage() {
     select: { start: true, coachId: true },
   });
 
-  // Grab coach hourly rates in one query
+  // Get coach hourly rates
   const coachIds = Array.from(new Set(bookings.map((b) => b.coachId)));
   const profiles =
     coachIds.length === 0
@@ -38,7 +28,7 @@ export default async function RevenuePage() {
   const priceByCoach = new Map(profiles.map((p) => [p.userId, p.pricePerHour]));
 
   // Aggregate by day
-  const byDay = new Map<string, RevenuePoint>();
+  const byDay = new Map<string, { date: string; revenue: number; count: number }>();
   for (const b of bookings) {
     const key = ymd(b.start);
     const price = priceByCoach.get(b.coachId) ?? 0;
@@ -47,11 +37,8 @@ export default async function RevenuePage() {
     cur.count += 1;
     byDay.set(key, cur);
   }
-  const data = Array.from(byDay.values()).sort((a, z) =>
-    a.date.localeCompare(z.date)
-  );
+  const data = Array.from(byDay.values()).sort((a, z) => a.date.localeCompare(z.date));
 
-  // Simple totals for the header
   const totalRevenue = data.reduce((sum, d) => sum + d.revenue, 0);
   const totalSessions = data.reduce((sum, d) => sum + d.count, 0);
 
@@ -78,8 +65,33 @@ export default async function RevenuePage() {
 
       <Card className="p-6">
         <h2 className="font-semibold mb-4">Revenue & Sessions by Day</h2>
-        {/* Client-only chart */}
-        <RevenueChart data={data} />
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-left text-gray-600">
+              <tr>
+                <th className="py-2 pr-4">Date</th>
+                <th className="py-2 pr-4">Revenue</th>
+                <th className="py-2 pr-4">Sessions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((d) => (
+                <tr key={d.date} className="border-t">
+                  <td className="py-2 pr-4">{d.date}</td>
+                  <td className="py-2 pr-4">${d.revenue}</td>
+                  <td className="py-2 pr-4">{d.count}</td>
+                </tr>
+              ))}
+              {data.length === 0 && (
+                <tr>
+                  <td colSpan={3} className="py-4 text-gray-500">
+                    No completed sessions yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </Card>
     </main>
   );
