@@ -1,36 +1,49 @@
 import { NextResponse } from "next/server";
-import { currentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/db";
+import { currentUser } from "@/src/lib/auth";
+import { BookingStatus } from "@prisma/client";
+
+export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   const user = await currentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { coachId, startISO, durationMins } = await req.json();
-  const start = new Date(startISO);
-  const end = new Date(start.getTime() + (durationMins || 60) * 60000);
+  const body = await req.json();
+  const coachId: string = body.coachId;
+  const start = new Date(body.start);
+  const end = new Date(body.end);
+  const location: string = body.location ?? "video";
 
-  // Simple overlap check
+  // Basic overlap check for the coach (start < existing.end && end > existing.start)
   const conflict = await prisma.booking.findFirst({
     where: {
       coachId,
-      OR: [
-        { start: { lt: end }, end: { gt: start } }
-      ]
-    }
+      AND: [{ start: { lt: end } }, { end: { gt: start } }],
+    },
   });
-  if (conflict) return NextResponse.json({ error: "Time not available" }, { status: 409 });
+  if (conflict) {
+    return NextResponse.json({ error: "Time not available" }, { status: 409 });
+  }
 
-  const booking = await prisma.booking.create({
+  // ✅ Create first, then use the result if you need its id anywhere else
+  const createdBooking = await prisma.booking.create({
     data: {
       clientId: user.id,
       coachId,
       start,
       end,
-      status: "SCHEDULED",
-      location: `https://meet.jit.si/coach-matcher-${booking.id}`
-    }
+      status: BookingStatus.SCHEDULED,
+      location,
+    },
+    include: {
+      client: true,
+      coach: true,
+    },
   });
 
-  return NextResponse.json({ ok: true, booking });
+  // Example follow-ups that need the ID can happen AFTER creation:
+  // await prisma.conversation.upsert({ ... using createdBooking.id if your schema links it ... });
+
+  return NextResponse.json({ booking: createdBooking }, { status: 201 });
 }
