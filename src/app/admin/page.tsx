@@ -1,3 +1,4 @@
+// src/app/admin/revenue/page.tsx
 import { prisma } from "@/src/lib/db";
 import { BookingStatus } from "@prisma/client";
 
@@ -12,13 +13,11 @@ function ymd(d: Date) {
 }
 
 export default async function RevenuePage() {
-  // Get completed bookings
   const bookings = await prisma.booking.findMany({
     where: { status: BookingStatus.COMPLETED },
     select: { start: true, coachId: true },
   });
 
-  // Get coach rates
   const coachIds = Array.from(new Set(bookings.map(b => b.coachId)));
   const profiles = coachIds.length
     ? await prisma.coachProfile.findMany({
@@ -28,7 +27,6 @@ export default async function RevenuePage() {
     : [];
   const priceByCoach = new Map(profiles.map(p => [p.userId, p.pricePerHour]));
 
-  // Aggregate per day
   const byDay = new Map<string, { date: string; revenue: number; count: number }>();
   for (const b of bookings) {
     const key = ymd(b.start);
@@ -40,15 +38,15 @@ export default async function RevenuePage() {
   }
   const data = Array.from(byDay.values()).sort((a, z) => a.date.localeCompare(z.date));
 
-  const totalRevenue = data.reduce((sum, d) => sum + d.revenue, 0);
-  const totalSessions = data.reduce((sum, d) => sum + d.count, 0);
+  const totalRevenue = data.reduce((s, d) => s + d.revenue, 0);
+  const totalSessions = data.reduce((s, d) => s + d.count, 0);
   const avgPerDay = data.length ? Math.round(totalRevenue / data.length) : 0;
 
   return (
-    <main style={{ padding: "24px", display: "grid", gap: "24px" }}>
-      <h1 style={{ fontSize: "20px", fontWeight: 600 }}>Revenue</h1>
+    <main style={{ padding: 24, display: "grid", gap: 24 }}>
+      <h1 style={{ fontSize: 20, fontWeight: 600 }}>Revenue</h1>
 
-      <div style={{ display: "grid", gap: "12px", gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+      <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(3, minmax(0,1fr))" }}>
         <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16 }}>
           <div style={{ color: "#6b7280", fontSize: 12 }}>Total revenue</div>
           <div style={{ fontSize: 24, fontWeight: 600 }}>${totalRevenue}</div>
