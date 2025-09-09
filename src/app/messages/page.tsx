@@ -1,45 +1,87 @@
-"use client";
-import { useEffect, useState } from "react";
-import { Card, Button, Input } from "@/src/lib/ui";
-import { useSearchParams } from "next/navigation";
+// src/app/messages/page.tsx
+import { prisma } from "@/src/lib/db";
+import { currentUser } from "@/src/lib/auth";
+import Link from "next/link";
 
-type Msg = { id: string, content: string, createdAt: string, senderId: string };
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-export default function Messages() {
-  const params = useSearchParams();
-  const withId = params.get("with");
-  const [messages, setMessages] = useState<Msg[]>([]);
-  const [text, setText] = useState("");
+type Search = { with?: string };
 
-  async function load() {
-    const r = await fetch(`/api/messages/list?with=${withId ?? ""}`);
-    if (r.ok) setMessages(await r.json());
-  }
+export default async function MessagesPage({ searchParams }: { searchParams: Search }) {
+  const user = await currentUser();
+  if (!user) return null;
 
-  async function send() {
-    const r = await fetch(`/api/messages/send`, { method: "POST", body: JSON.stringify({ to: withId, content: text }) });
-    if (r.ok) { setText(""); load(); }
-  }
+  const partnerId = searchParams.with ?? null;
 
-  useEffect(() => { load(); }, [withId]);
+  // List recent conversations for the sidebar
+  const conversations = await prisma.conversation.findMany({
+    where: { OR: [{ clientId: user.id }, { coachId: user.id }] },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+  });
+
+  // If a partner is selected, load that thread (client↔coach in either direction)
+  const thread = partnerId
+    ? await prisma.conversation.findFirst({
+        where: {
+          OR: [
+            { clientId: user.id, coachId: partnerId },
+            { clientId: partnerId, coachId: user.id },
+          ],
+        },
+        include: { messages: { orderBy: { createdAt: "asc" }, include: { sender: true } } },
+      })
+    : null;
 
   return (
     <main className="p-6 md:p-10">
-      <Card className="p-6 max-w-2xl mx-auto">
-        <h1 className="text-xl font-semibold">Messages</h1>
-        <div className="mt-4 h-80 overflow-y-auto border rounded-xl p-3 bg-white">
-          {messages.map(m => (
-            <div key={m.id} className="py-1 text-sm">
-              <span className="text-gray-500">{new Date(m.createdAt).toLocaleString()} — </span>
-              <span>{m.content}</span>
+      <h1 className="text-2xl font-semibold mb-4">Messages</h1>
+
+      <div className="grid md:grid-cols-[260px_1fr] gap-6">
+        <aside className="border rounded-2xl p-3">
+          <div className="text-sm text-gray-600 mb-2">Conversations</div>
+          <ul className="grid gap-2">
+            {conversations.length === 0 && <li className="text-sm text-gray-500">No conversations yet.</li>}
+            {conversations.map((c) => {
+              const otherId = c.clientId === user.id ? c.coachId : c.clientId;
+              const active = otherId === partnerId;
+              return (
+                <li key={c.id}>
+                  <Link
+                    className={`block rounded-xl px-3 py-2 border ${active ? "bg-gray-50" : ""}`}
+                    href={`/messages?with=${otherId}`}
+                  >
+                    Chat with {otherId.slice(0, 6)}…
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </aside>
+
+        <section className="border rounded-2xl p-4">
+          {!partnerId && <p className="text-sm text-gray-600">Pick a conversation on the left.</p>}
+
+          {partnerId && !thread && (
+            <p className="text-sm text-gray-600">No messages with this user yet.</p>
+          )}
+
+          {thread && (
+            <div className="grid gap-3">
+              {thread.messages.map((m) => (
+                <div key={m.id} className="border rounded-xl px-3 py-2">
+                  <div className="text-xs text-gray-500">
+                    {m.senderId === user.id ? "You" : m.sender.name ?? m.senderId.slice(0, 6)} •{" "}
+                    {new Date(m.createdAt).toLocaleString()}
+                  </div>
+                  <div>{m.content}</div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-        <div className="mt-3 flex gap-2">
-          <Input value={text} onChange={e => setText(e.target.value)} placeholder="Write a message..." />
-          <Button onClick={send}>Send</Button>
-        </div>
-      </Card>
+          )}
+        </section>
+      </div>
     </main>
   );
 }
